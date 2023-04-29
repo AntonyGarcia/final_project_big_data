@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler
 import numpy as np
 
 # Step 1: Define a custom dataset class
@@ -19,53 +20,52 @@ class LoadDataset(Dataset):
         return self.X[idx], self.y[idx]
 
 
+
 def preprocess_data(df):
     # One-hot encode categorical variables
     categorical_features = ['hour_of_day', 'day_of_week', 'month_of_year', 'year', 'is_holiday']
     df = pd.get_dummies(df, columns=categorical_features)
 
-    # Scale continuous variables
-    scaler = StandardScaler()
-    continuous_features = ['epoch','temperature', 'humidity', 'dew_point', 'temperature_feeling', 'wind_speed', 'rain_1h']
+    # Scale continuous variables using min-max scaling
+    scaler = MinMaxScaler()
+    continuous_features = ['epoch', 'temperature', 'humidity', 'dew_point', 'temperature_feeling', 'wind_speed', 'rain_1h']
     df[continuous_features] = scaler.fit_transform(df[continuous_features])
-
+    print(df)
     return df
 
-class DeepGRUModel(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, num_gru_layers, num_fc_layers):
-        super(DeepGRUModel, self).__init__()
+class LSTMModel(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size, num_lstm_layers, num_fc_layers):
+        super(LSTMModel, self).__init__()
         self.hidden_size = hidden_size
-        self.num_gru_layers = num_gru_layers
+        self.num_lstm_layers = num_lstm_layers
 
-        self.gru = nn.GRU(input_size, hidden_size, num_layers=num_gru_layers, batch_first=True, dropout=0.2)
-        self.dropout = nn.Dropout(0.5)
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers=num_lstm_layers, batch_first=True, dropout=0.2)
         self.fc_layers = nn.ModuleList([nn.Linear(hidden_size, hidden_size) for _ in range(num_fc_layers)])
         self.output = nn.Linear(hidden_size, output_size)
 
     def forward(self, x):
-        h0 = torch.zeros(self.num_gru_layers, x.size(0), self.hidden_size).to(x.device)
-        out, _ = self.gru(x, h0)
+        h0 = torch.zeros(self.num_lstm_layers, x.size(0), self.hidden_size).to(x.device)
+        c0 = torch.zeros(self.num_lstm_layers, x.size(0), self.hidden_size).to(x.device)
+        out, _ = self.lstm(x, (h0, c0))
 
-        out = self.dropout(out[:, -1, :])
+        out = out[:, -1, :]
         for fc in self.fc_layers:
             out = torch.relu(fc(out))
-            out = self.dropout(out)
 
         out = self.output(out)
         return out
+
 
 def train_and_evaluate(X_train, X_test, y_train, y_test, epochs=50, batch_size=64, learning_rate=0.001):
     train_dataset = LoadDataset(X_train, y_train)
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
 
     input_size = X_train.shape[2]
-    hidden_size = 256
+    hidden_size = 64
     output_size = 1
 
-    best_test_loss = float('inf')
-    best_model_state = None
+    model = LSTMModel(input_size, hidden_size, output_size, num_lstm_layers=2, num_fc_layers=1)
 
-    model = DeepGRUModel(input_size, hidden_size, output_size, num_gru_layers=2, num_fc_layers=1)
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
 
@@ -90,18 +90,9 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, epochs=50, batch_size=6
             test_outputs = model(X_test_tensor)
             test_loss = criterion(test_outputs.squeeze(), y_test_tensor)
 
-            if test_loss.item() < best_test_loss:
-                best_test_loss = test_loss.item()
-                best_model_state = model.state_dict()
-                print(f'Best model updated at epoch [{epoch + 1}/{epochs}], Best Test Loss: {best_test_loss:.4f}')
-
         print(f'Epoch [{epoch + 1}/{epochs}], Loss: {loss.item():.4f}, Test Loss: {test_loss.item():.4f}')
 
-    # Load the best model state
-    model.load_state_dict(best_model_state)
-
     return model
-
 
 def create_sequences(data, seq_length):
     sequences = []
@@ -138,7 +129,7 @@ def main():
     X_train, X_test, y_train, y_test, original_df_test = prepare_data('raw_data/final_dataset.csv', seq_length=seq_length)
 
     # Train and evaluate the GRU model
-    trained_model = train_and_evaluate(X_train, X_test, y_train, y_test, epochs=200)
+    trained_model = train_and_evaluate(X_train, X_test, y_train, y_test, epochs=50)
 
     # Predict test dataset
     with torch.no_grad():
