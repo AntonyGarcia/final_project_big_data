@@ -26,7 +26,7 @@ def preprocess_data(df):
 
     # Scale continuous variables
     scaler = StandardScaler()
-    continuous_features = ['epoch','temperature', 'humidity', 'dew_point', 'temperature_feeling', 'wind_speed', 'rain_1h']
+    continuous_features = ['temperature', 'humidity', 'dew_point', 'temperature_feeling', 'wind_speed', 'rain_1h']
     df[continuous_features] = scaler.fit_transform(df[continuous_features])
 
     return df
@@ -104,6 +104,8 @@ def train_and_evaluate(X_train, X_test, y_train, y_test, epochs=50, batch_size=6
 
 
 def create_sequences(data, seq_length):
+    # Exclude the epoch column
+    data = data[:, 1:]
     sequences = []
     for i in range(len(data) - seq_length):
         sequences.append(data[i : i + seq_length])
@@ -135,10 +137,10 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # Load and preprocess data
     seq_length = 24
-    X_train, X_test, y_train, y_test, original_df_test = prepare_data('raw_data/final_dataset.csv', seq_length=seq_length)
+    X_train, X_test, y_train, y_test, original_df_test = prepare_data('raw_data/enhanced_dataset.csv', seq_length=seq_length)
 
     # Train and evaluate the GRU model
-    trained_model = train_and_evaluate(X_train, X_test, y_train, y_test, epochs=200)
+    trained_model = train_and_evaluate(X_train, X_test, y_train, y_test, epochs=50)
 
     # Predict test dataset
     with torch.no_grad():
